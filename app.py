@@ -10,11 +10,13 @@ DATA_FILE_PROJECTS = "projects_data.csv"
 # ========== Load and Save ==========
 def load_projects():
     if os.path.exists(DATA_FILE_PROJECTS):
-        return pd.read_csv(DATA_FILE_PROJECTS, parse_dates=["Start Date", "Target Completion Date", "Last Update"])
+        df = pd.read_csv(DATA_FILE_PROJECTS, parse_dates=["Start Date", "Target Completion Date", "Last Update"])
+        if "Officer" not in df.columns:
+            df["Officer"] = ""
+        return df[["Project Name", "Officer", "Start Date", "Target Completion Date", "Last Update", "Remarks"]]
     else:
         return pd.DataFrame(columns=[
-            "Project Name", "Officer", "Status",
-            "Start Date", "Target Completion Date", "Last Update", "Remarks"
+            "Project Name", "Officer", "Start Date", "Target Completion Date", "Last Update", "Remarks"
         ])
 
 def save_projects(df):
@@ -40,9 +42,17 @@ def next_5_working_days(start_date):
 
 def compute_status_and_traffic(df):
     df = df.copy()
-    df["Computed Status"] = df["Status"]
-    overdue_mask = (df["Status"] != "Completed") & (pd.to_datetime(df["Target Completion Date"]).dt.date < today)
-    df.loc[overdue_mask, "Computed Status"] = "Overdue"
+    today = datetime.date.today()
+
+    def determine_status(row):
+        if pd.isna(row["Last Update"]) or pd.isna(row["Target Completion Date"]):
+            return "In Progress"
+        if row["Last Update"].date() >= row["Target Completion Date"].date():
+            return "Completed"
+        elif today > row["Target Completion Date"].date():
+            return "Overdue"
+        else:
+            return "In Progress"
 
     def assign_traffic(row):
         if row["Computed Status"] == "Completed":
@@ -55,6 +65,7 @@ def compute_status_and_traffic(df):
         else:
             return "Green"
 
+    df["Computed Status"] = df.apply(determine_status, axis=1)
     df["Computed Traffic Light"] = df.apply(assign_traffic, axis=1)
     return df
 
@@ -65,7 +76,6 @@ st.sidebar.header("➕ Add New Project")
 with st.sidebar.form(key="add_project_form"):
     project_name = st.text_input("Project Name")
     officer = st.text_input("Responsible Officer")
-    status = st.selectbox("Status", ["Not Started", "In Progress", "Completed"])
     start_date = st.date_input("Start Date", datetime.date.today())
     target_date = st.date_input("Target Completion Date")
     remarks = st.text_area("Remarks")
@@ -76,7 +86,6 @@ with st.sidebar.form(key="add_project_form"):
         new_project = {
             "Project Name": project_name,
             "Officer": officer,
-            "Status": status,
             "Start Date": start_date,
             "Target Completion Date": target_date,
             "Last Update": today,
@@ -102,7 +111,6 @@ if not st.session_state.projects.empty:
     with st.form(key="edit_project_form"):
         edit_project_name = st.text_input("Edit Project Name", selected_project_data["Project Name"])
         edit_officer = st.text_input("Edit Officer", selected_project_data["Officer"])
-        edit_status = st.selectbox("Edit Status", ["Not Started", "In Progress", "Completed"], index=["Not Started", "In Progress", "Completed"].index(selected_project_data["Status"]))
         edit_start_date = st.date_input("Edit Start Date", selected_project_data["Start Date"])
         edit_target_date = st.date_input("Edit Target Completion Date", selected_project_data["Target Completion Date"])
         edit_remarks = st.text_area("Edit Remarks", selected_project_data["Remarks"])
@@ -112,7 +120,6 @@ if not st.session_state.projects.empty:
         if update_button:
             st.session_state.projects.at[project_index, "Project Name"] = edit_project_name
             st.session_state.projects.at[project_index, "Officer"] = edit_officer
-            st.session_state.projects.at[project_index, "Status"] = edit_status
             st.session_state.projects.at[project_index, "Start Date"] = edit_start_date
             st.session_state.projects.at[project_index, "Target Completion Date"] = edit_target_date
             st.session_state.projects.at[project_index, "Remarks"] = edit_remarks
@@ -122,7 +129,6 @@ if not st.session_state.projects.empty:
             st.experimental_rerun()
 
     if st.button("✅ Mark as Completed"):
-        st.session_state.projects.at[project_index, "Status"] = "Completed"
         st.session_state.projects.at[project_index, "Last Update"] = today
         save_projects(st.session_state.projects)
         st.success(f"🎯 Project '{selected_project}' marked as Completed!")
@@ -204,7 +210,7 @@ if not st.session_state.projects.empty:
         elif row["Computed Status"] == "Overdue":
             return "Overdue"
         elif row["Computed Status"] == "In Progress":
-            if pd.to_datetime(row["Target Completion Date"]).date() in next_5_working_days(today):
+            if pd.to_datetime(row["Target Completion Date"]).dt.date in next_5_working_days(today):
                 return "Due Soon"
             else:
                 return "In Progress"
