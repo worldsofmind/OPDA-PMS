@@ -210,7 +210,7 @@ if not st.session_state.projects.empty:
         elif row["Computed Status"] == "Overdue":
             return "Overdue"
         elif row["Computed Status"] == "In Progress":
-            if pd.to_datetime(row["Target Completion Date"]).dt.date in next_5_working_days(today):
+            if pd.to_datetime(row["Target Completion Date"]).date() in next_5_working_days(today):
                 return "Due Soon"
             else:
                 return "In Progress"
